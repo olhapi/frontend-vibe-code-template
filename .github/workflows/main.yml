@@ -1,0 +1,140 @@
+name: CI
+
+# 👇 Run workflow on push to every branch and for pull requests targeted to master
+on:
+    push:
+
+jobs:
+    build:
+        name: Run tests, build and storybook
+        runs-on: ubuntu-latest
+        # 👇 Map a step output to a job output.
+        outputs:
+            hasJsChanges: ${{ steps.changed-js-files.outputs.js_any_changed }}
+        defaults:
+            run:
+                working-directory: .
+        steps:
+            # 👇 Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it.
+            - name: 🔃 Check-out repository and fetch all history
+              uses: actions/checkout@v3
+              with:
+                  fetch-depth: 2000
+
+            - name: ⚙️ Setup tracking branches
+              if: github.ref != 'refs/heads/main'
+              run: |
+                  git fetch origin main:refs/remotes/origin/main
+
+            - uses: n1hility/cancel-previous-runs@v3
+              name: 🚫 Cancel Previous Runs
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            # 👇 If frontend files are not changed workflow should return success and still be run because it is required
+            # When tests are run on main, we don't check for changes we just run the chromatic build and publish
+            - name: 🟨 Check for JavaScript related file changes
+              id: changed-js-files
+              if: github.ref != 'refs/heads/main'
+              run: |
+                  changed_files=$(git diff --name-only origin/main...HEAD)
+                  echo "js_any_changed=false" > $GITHUB_ENV
+                  for file in $changed_files; do
+                    if [[ "$file" == *.js || "$file" == *.ts || "$file" == *.tsx || "$file" == *.mdx || "$file" == *.stories.js || "$file" == *.json || "$file" == *.lock || "$file" =~ ^\.storybook\/.* ]]; then
+                      echo "js_any_changed=true" > $GITHUB_ENV
+                      echo "js_any_changed=true" >> $GITHUB_OUTPUT
+                      exit 0
+                    fi
+                  done
+
+            - name: ⚙️ Setup Node.js environment
+              if: ${{ env.js_any_changed == 'true' || github.ref == 'refs/heads/main'}}
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 22.17.0
+
+            - name: ⚙️ Set node memory space to 16 GiB
+              # 7 GiB by default on GitHub, setting this to 16 GiB that are needed for storybook build
+              if: ${{ env.js_any_changed == 'true' || (github.ref == 'refs/heads/main')}}
+              run: export NODE_OPTIONS="--max_old_space_size=16384"
+
+            - name: ⚙️ Expose npm config as "$GITHUB_OUTPUT"
+              id: npm-config
+              if: ${{ env.js_any_changed == 'true' || (github.ref == 'refs/heads/main') }}
+              shell: bash
+              run: |
+                  echo "CACHE_FOLDER=$(npm config get cache)" >> $GITHUB_OUTPUT
+
+            # 👇 We need another checkout after js-actions/changed-files as it changes git history and Chromatic fails to find ancestor
+            - name: 🔃 Check-out repository and fetch all history again after changed-files
+              uses: actions/checkout@v3
+              with:
+                  fetch-depth: 2000
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: ♻️ Restore npm cache
+              uses: actions/cache@v3
+              if: ${{ env.js_any_changed == 'true' || (github.ref == 'refs/heads/main') }}
+              id: npm-cache
+              with:
+                  path: ${{ steps.npm-config.outputs.CACHE_FOLDER }}
+                  key: npm-cache-${{ hashFiles('**/package-lock.json') }}
+                  restore-keys: |
+                      ${{ runner.os }}-npm-
+
+            - name: 📥 Install dependencies
+              if: ${{ env.js_any_changed == 'true' || (github.ref == 'refs/heads/main')}}
+              run: |
+                  npm ci
+
+            - name: 🧹 Fix lint and format issues
+              #  Skip this run if github actions lint and format commit triggered this workflow, that means that biome issues are already fixed
+              if: ${{ env.js_any_changed == 'true' && (github.ref != 'refs/heads/main') && (github.actor != 'github-actions[bot]') }}
+              run: npm run check:fix
+
+            - name: 📝 Commit lint and format fixes
+              #  Skip this run if github actions lint and format fix commit triggered this workflow, that means that biome issues are already fixed
+              if: ${{ env.js_any_changed == 'true' && (github.ref != 'refs/heads/main') && (github.actor != 'github-actions[bot]') }}
+              uses: stefanzweifel/git-auto-commit-action@v5
+              with:
+                  commit_message: fix:lint and formatting fixes
+
+            - name: 📦 Build and run TypeScript checks
+              if: ${{ env.js_any_changed == 'true' }}
+              run: npm run build
+
+            - name: Run tests
+              if: ${{ env.js_any_changed == 'true' }}
+              run: npm test
+
+            # 👇 Run Chromatic step only if we detect changes in react, js or storybook files
+            - name: 🚀 Publish to Chromatic (not main branch)
+              if: ${{github.ref != 'refs/heads/main'}}
+              uses: chromaui/action@latest
+              env:
+                  NODE_OPTIONS: "--max_old_space_size=16384"
+                  CHROMATIC_TIMEOUT: 900000
+                  STORYBOOK_BUILD_TIMEOUT: 1200000
+                  LOG_LEVEL: "debug"
+              with:
+                  projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+                  exitOnceUploaded: true
+                  zip: true
+                  skip: ${{env.js_any_changed != 'true'}}
+
+            - name: Print storybook log files if build fails
+              if: failure()
+              run: cat /home/runner/work/web-client/web-client/build-storybook.log
+            # 👇 Checks if the branch is main and accepts all changes in Chromatic
+            - name: 🚀 Publish to Chromatic (main branch only)
+              if: github.ref == 'refs/heads/main'
+              uses: chromaui/action@latest
+              env:
+                  NODE_OPTIONS: "--max_old_space_size=16384"
+                  CHROMATIC_TIMEOUT: 600000
+                  STORYBOOK_BUILD_TIMEOUT: 900000
+                  LOG_LEVEL: "debug"
+              with:
+                  projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+                  autoAcceptChanges: true
+                  zip: true

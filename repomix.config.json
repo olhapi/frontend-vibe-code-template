@@ -1,0 +1,18 @@
+{
+    "$schema": "https://repomix.com/schemas/latest/schema.json",
+    "output": {
+        "filePath": "project-structure.md",
+        "style": "markdown",
+        "files": false
+    },
+    "include": [
+        "src",
+        "components.json",
+        "index.html",
+        "package.json",
+        "tsconfig*",
+        "vite.config.ts",
+        "vitest.config.ts",
+        "README.md"
+    ]
+}
