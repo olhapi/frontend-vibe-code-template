@@ -33,7 +33,6 @@ A modern React TypeScript starter template built for developer productivity. Fea
 
    For Chromatic integration:
    - Replace `CHROMATIC_PROJECT_ID` in `chromatic.config.json`
-   - Replace `CHROMATIC_PROJECT_TOKEN` in `package.json`
    - Set `CHROMATIC_PROJECT_TOKEN` in GitHub secrets
 
 3. **Start developing**

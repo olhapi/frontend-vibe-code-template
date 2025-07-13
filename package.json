@@ -21,7 +21,7 @@
         "test:storybook": "vitest run --project=storybook",
         "test:watch": "vitest",
         "test:coverage": "vitest run --coverage",
-        "chromatic": "npx chromatic --project-token=CHROMATIC_PROJECT_TOKEN --exit-once-uploaded"
+        "chromatic": "npx chromatic --exit-once-uploaded"
     },
     "dependencies": {
         "react": "^19.1.0",
