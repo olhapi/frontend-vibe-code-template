@@ -1,16 +1,22 @@
 #!/bin/sh
-# Save what was staged
-STAGED_FILES=$(git diff --cached --name-only)
 
+# Save what was staged using null-separated output
+STAGED_FILES_TEMP=$(mktemp)
+git diff --cached --name-only -z > "$STAGED_FILES_TEMP"
+
+# Run the necessary commands
 npm run format
 npm run update-structure
 npx ultracite format
 
-# Reset and re-add only what was originally staged to not commit everything
+# # Reset and re-add only what was originally staged to not commit everything
 git reset
-for file in $STAGED_FILES; do
+while IFS= read -r -d '' file; do
     git add -A "$file" 2>/dev/null || true
-done
+done < "$STAGED_FILES_TEMP"
+
+# Clean up temp file
+rm "$STAGED_FILES_TEMP"
 
 # Add project structure changes
 git add project-structure.md
